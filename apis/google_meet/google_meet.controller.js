@@ -85,6 +85,13 @@ exports.joinMeeting = async (req, res) => {
 
 exports.getMeeting = async (req, res) => {
   try {
+    console.log("Visit this URL to authorize:", oauth2Client.generateAuthUrl({ access_type: "offline", scope: ["https://www.googleapis.com/auth/calendar.events"] }));
+    const code = readline.question("Enter the code from Google: ");
+    
+    oauth2Client.getToken(code, (err, token) => {
+      if (err) return console.error("Error getting token", err);
+      console.log("Your refresh token:", token.refresh_token);
+    });
     const meetings = await GoogleMeeting.find();
     res.status(200).json(meetings); // ✅ Fixed status code from 500 to 200
   } catch (error) {
