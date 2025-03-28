@@ -1,12 +1,16 @@
 const mongoose = require("mongoose");
 
 const meetingSchema = new mongoose.Schema({
-  title: { type: String, required: true },
   instructor: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  title: { type: String, required: true },
   startTime: { type: Date, required: true },
   endTime: { type: Date, required: true },
-  meetingLink: { type: String, required: true },
-  allowedStudents: [{ type: String, required: true }], // Student emails
-});
+  attendees: [{ email: { type: String, required: true } }],
+  googleEventId: { type: String },
+  meetLink: { type: String },
+  userId: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+}
+);
 
-module.exports = mongoose.model("GoogleMeeting", meetingSchema);
+module.exports = mongoose.model('Meeting', meetingSchema);

@@ -1,101 +1,78 @@
-require("dotenv").config();
-const { google } = require("googleapis");
-const GoogleMeeting = require("./google_meet.model");
 
-const oauth2Client = new google.auth.OAuth2(
-  process.env.CLIENT_ID,
-  process.env.CLIENT_SECRET,
-  process.env.REDIRECT_URI
-);
-oauth2Client.setCredentials({ refresh_token: process.env.REFRESH_TOKEN });
+const { google } = require('googleapis');
+const { oauth2Client } = require('./generate-token');
+const Meeting = require('./google_meet.model');
 
-const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+exports.getAuthUrl = (req, res) => {
+  const { getAuthUrl } = require('./generate-token');
+  res.json({ authUrl: getAuthUrl() });
+};
+
+exports.handleCallback = async (req, res) => {
+  const code = req.query.code;
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+    // Store tokens securely in your database associated with the user
+    res.redirect('/meetings/create');
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
 
 exports.createMeeting = async (req, res) => {
-  try {
-    
-    console.log("Visit this URL to authorize:", oauth2Client.generateAuthUrl({ access_type: "offline", scope: ["https://www.googleapis.com/auth/calendar.events"] }));
-    const code = readline.question("Enter the code from Google: ");
-    
-    oauth2Client.getToken(code, (err, token) => {
-      if (err) return console.error("Error getting token", err);
-      console.log("Your refresh token:", token.refresh_token);
-    });
-    
-    if (req.body.role !== "instructor") {
-      return res.status(403).json({ error: "Only instructors can create meetings" });
-    }
+  const { title, startTime, endTime, attendees } = req.body;
+  // Assuming userId comes from authentication middleware
+  const userId = 'user123'; // Replace with actual user authentication
 
-    const { title, startTime, endTime, allowedStudents } = req.body;
+  try {
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
     const event = {
       summary: title,
-      start: { dateTime: startTime, timeZone: "Asia/Kolkata" },
-      end: { dateTime: endTime, timeZone: "Asia/Kolkata" },
+      start: { dateTime: startTime, timeZone: 'America/Los_Angeles' },
+      end: { dateTime: endTime, timeZone: 'America/Los_Angeles' },
+      attendees: attendees.map(email => ({ email })),
       conferenceData: {
         createRequest: {
-          requestId: Math.random().toString(36).substring(2, 15),
-          conferenceSolutionKey: { type: "hangoutsMeet" },
-        },
-      },
+          requestId: `${Date.now()}`,
+          conferenceSolutionKey: { type: 'hangoutsMeet' }
+        }
+      }
     };
-    console.log(event);
-    
 
-    // ✅ Fixed: Ensure meeting creation waits for completion
-    const meeting = await calendar.events.insert({
-      calendarId: "primary",
+    const response = await calendar.events.insert({
+      calendarId: 'primary',
       resource: event,
       conferenceDataVersion: 1
     });
 
-    const newMeeting = new GoogleMeeting({
+    const meeting = new Meeting({
       title,
-      instructor: req.user.userId,
       startTime,
       endTime,
-      meetingLink: meeting.data.hangoutLink,
-      allowedStudents,
+      attendees,
+      googleEventId: response.data.id,
+      meetLink: response.data.hangoutLink,
+      userId
     });
 
-    await newMeeting.save();
-    res.status(201).json(newMeeting);
+    await meeting.save();
+    res.status(201).json({
+      message: 'Meeting created successfully',
+      meeting,
+      meetLink: response.data.hangoutLink
+    });
   } catch (error) {
-    console.error("Meeting creation failed:", error);
-    res.status(500).json({ error: "Failed to create meeting" });
+    res.status(500).json({ error: error.message });
   }
 };
 
-exports.joinMeeting = async (req, res) => {
+exports.getMeetings = async (req, res) => {
   try {
-    const meeting = await GoogleMeeting.findById(req.params.id);
-    if (!meeting) {
-      return res.status(404).json({ error: "Meeting not found" }); // ✅ Added 404 check
-    }
-
-    if (!meeting.allowedStudents.includes(req.user.email)) {
-      return res.status(403).json({ error: "Access denied" });
-    }
-
-    res.json({ meetingLink: meeting.meetingLink });
+    const meetings = await Meeting.find({ userId: 'user123' }); // Replace with actual user ID
+    res.json(meetings);
   } catch (error) {
-    console.error("Error joining meeting:", error);
-    res.status(500).json({ error: "Error joining meeting" });
-  }
-};
-
-exports.getMeeting = async (req, res) => {
-  try {
-    console.log("Visit this URL to authorize:", oauth2Client.generateAuthUrl({ access_type: "offline", scope: ["https://www.googleapis.com/auth/calendar.events"] }));
-    const code = readline.question("Enter the code from Google: ");
-    
-    oauth2Client.getToken(code, (err, token) => {
-      if (err) return console.error("Error getting token", err);
-      console.log("Your refresh token:", token.refresh_token);
-    });
-    const meetings = await GoogleMeeting.find();
-    res.status(200).json(meetings); // ✅ Fixed status code from 500 to 200
-  } catch (error) {
-    console.error("Error fetching meetings:", error);
-    res.status(500).json({ error: "Error fetching meetings" });
+    res.status(500).json({ error: error.message });
   }
 };
